@@ -1,1 +1,2 @@
+extends: mergify-onapp-lab-b-20261004
 pull_request_rules: []
