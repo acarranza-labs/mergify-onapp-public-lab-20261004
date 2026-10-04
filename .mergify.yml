@@ -1,1 +1,2 @@
+extends: MERGIFY-ONAPP-LAB-B-20261004
 pull_request_rules: []
