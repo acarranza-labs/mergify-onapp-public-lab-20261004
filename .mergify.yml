@@ -1,1 +1,18 @@
-pull_request_rules: []
+merge_queue:
+  max_parallel_checks: 1
+
+queue_rules:
+  - name: bounty-default-queue-review-control
+    batch_size: 1
+    queue_conditions:
+      - base = main
+    merge_conditions:
+      - "#approved-reviews-by >= 1"
+
+pull_request_rules:
+  - name: queue only default-mode title canary
+    conditions:
+      - base = main
+      - title = bounty-default-queue-trigger
+    actions:
+      queue: {}
