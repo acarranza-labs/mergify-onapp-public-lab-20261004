@@ -1,8 +1,1 @@
-scopes:
-  source:
-    files:
-      api:
-        include:
-          - api/**
-
 pull_request_rules: []
