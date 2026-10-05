@@ -1,0 +1,1 @@
+Owned O1/O2 shared-SHA scope canary 20261005. No secrets or executable content.
