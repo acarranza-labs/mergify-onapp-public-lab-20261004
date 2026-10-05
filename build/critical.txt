@@ -1,3 +1,0 @@
-Owned R3 synthetic build dependency marker for the barrier rename test.
-The marker models a shared toolchain file consumed by the API integration test.
-Its bytes are inert and contain no credentials or executable code.
