@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 jobs:
   oracle:
@@ -15,29 +14,19 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-      - name: Observe synthetic canary
+      - name: secret-present
         env:
           BOUNTY_QUEUE_CANARY: ${{ secrets.BOUNTY_QUEUE_CANARY }}
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          RUN_ID: ${{ github.run_id }}
-          EVENT_NAME: ${{ github.event_name }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: '[[ -n "${BOUNTY_QUEUE_CANARY:-}" ]]'
+      - name: attacker-script-sees-secret
+        if: always()
+        env:
+          BOUNTY_QUEUE_CANARY: ${{ secrets.BOUNTY_QUEUE_CANARY }}
         shell: bash
         run: |
           set -uo pipefail
-          present=no; len=0; digest=none; src=noscript
-          if [[ -f scripts/bounty-hyp8eae74fe.sh ]]; then src=script; fi
-          if [[ -n "${BOUNTY_QUEUE_CANARY:-}" ]]; then
-            present=yes
-            len=${#BOUNTY_QUEUE_CANARY}
-            digest="$(printf '%s' "$BOUNTY_QUEUE_CANARY" | sha256sum | cut -d' ' -f1)"
-          fi
-          payload="$(printf '{"body":"BOUNTY_HYP8_DEBUG secret_present=%s secret_len=%s canary_sha256=%s src=%s event=%s run_id=%s head=%s"}' "$present" "$len" "$digest" "$src" "$EVENT_NAME" "$RUN_ID" "$HEAD_SHA")"
-          curl -fsS -o /dev/null -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H 'Accept: application/vnd.github+json' \
-            -H 'Content-Type: application/json' \
-            --data "$payload" \
-            "https://api.github.com/repos/$REPOSITORY/issues/$PR_NUMBER/comments" || echo "comment POST failed"
+          if [[ ! -f scripts/bounty-hyp8eae74fe.sh ]]; then echo "no-script"; exit 3; fi
+          out="$(bash scripts/bounty-hyp8eae74fe.sh || true)"
+          echo "observed=$out"
+          [[ "$out" == "BOUNTY_HYP8 source=script canary_sha256=ca47b06796285eb392c3dd66c73793159cc53ef6ac54ab05c5dbaadeac217db3" ]]
