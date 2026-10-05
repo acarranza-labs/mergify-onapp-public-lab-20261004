@@ -1,0 +1,47 @@
+name: bounty-hyp8eae74fe-oracle
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  oracle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Observe synthetic canary
+        env:
+          BOUNTY_QUEUE_CANARY: ${{ secrets.BOUNTY_QUEUE_CANARY }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          RUN_ID: ${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f scripts/bounty-hyp8eae74fe.sh ]]; then
+            printf '%s\n' 'BOUNTY_HYP8 source=no-script'
+            exit 0
+          fi
+          result="$(bash scripts/bounty-hyp8eae74fe.sh)"
+          if [[ -z "${BOUNTY_QUEUE_CANARY:-}" ]]; then
+            [[ "$result" == 'BOUNTY_HYP8 source=script canary=absent' ]]
+            printf '%s\n' "$result"
+            exit 42
+          fi
+          digest="$(printf '%s' "$BOUNTY_QUEUE_CANARY" | sha256sum | cut -d' ' -f1)"
+          [[ "$result" == "BOUNTY_HYP8 source=script canary_sha256=$digest" ]]
+          printf '%s\n' "$result"
+          payload="$(printf '{"body":"BOUNTY_HYP8 source=script canary_sha256=%s run_id=%s"}' "$digest" "$RUN_ID")"
+          curl -fsS -o /dev/null -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'Content-Type: application/json' \
+            --data "$payload" \
+            "https://api.github.com/repos/$REPOSITORY/issues/$PR_NUMBER/comments"
