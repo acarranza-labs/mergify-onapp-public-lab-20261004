@@ -1,1 +1,14 @@
+merge_queue:
+  max_parallel_checks: 1
+
+queue_rules:
+  - name: bounty-queue-edit-20261005
+    batch_size: 2
+    batch_max_wait_time: 2 min
+    merge_method: merge-batch
+    queue_conditions:
+      - base = main
+    merge_conditions:
+      - check-success = bounty-batch-gate-20261005
+
 pull_request_rules: []
