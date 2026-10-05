@@ -1,8 +1,1 @@
-pull_request_rules:
-  - name: bounty-depends-stage-a-20261005
-    conditions:
-      - base = main
-      - check-success = bounty-never-issued-depends-20261005
-    actions:
-      merge:
-        method: squash
+pull_request_rules: []
