@@ -1,16 +1,1 @@
-merge_queue:
-  max_parallel_checks: 1
-  queue_controls_comment: false
-
-queue_rules:
-  - name: bounty-issues-command-20261005
-    batch_size: 1
-    merge_method: merge
-    branch_protection_injection_mode: merge
-    queue_conditions:
-      - base = bounty-issues-base-20261005
-    merge_conditions:
-      - base != bounty-issues-base-20261005
-      - check-success = bounty-issues-never-20261005
-
 pull_request_rules: []
