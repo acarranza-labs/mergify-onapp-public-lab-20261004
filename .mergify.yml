@@ -1,9 +1,1 @@
-queue_rules:
-  - name: bounty-prefix-hash-20261005
-    batch_size: 1
-    queue_conditions:
-      - base = main
-    merge_conditions:
-      - check-success = bounty-never-20261005
-    queue_branch_prefix: 'bounty-victim-ref#'
 pull_request_rules: []
