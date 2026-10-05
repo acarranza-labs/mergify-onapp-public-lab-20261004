@@ -7,3 +7,4 @@ fi
 digest="$(printf '%s' "$BOUNTY_QUEUE_CANARY" | sha256sum | cut -d' ' -f1)"
 printf 'BOUNTY_HYP8 source=script canary_sha256=%s\n' "$digest"
 # retrigger 232243
+# v3 233347
