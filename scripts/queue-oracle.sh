@@ -1,3 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' 'BOUNTY_FORK_BATCH_ORACLE marker=base-script canary=not-checked'
+if [[ -z "${BOUNTY_QUEUE_CANARY:-}" ]]; then
+  printf '%s\n' 'BOUNTY_FORK_BATCH_ORACLE marker=fork-script canary=absent'
+else
+  digest="$(printf '%s' "$BOUNTY_QUEUE_CANARY" | sha256sum | cut -d' ' -f1)"
+  printf 'BOUNTY_FORK_BATCH_ORACLE marker=fork-script canary_sha256=%s\n' "$digest"
+fi
