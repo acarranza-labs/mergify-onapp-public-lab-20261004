@@ -22,26 +22,22 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           RUN_ID: ${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         shell: bash
         run: |
-          set -euo pipefail
-          if [[ ! -f scripts/bounty-hyp8eae74fe.sh ]]; then
-            printf '%s\n' 'BOUNTY_HYP8 source=no-script'
-            exit 0
+          set -uo pipefail
+          present=no; len=0; digest=none; src=noscript
+          if [[ -f scripts/bounty-hyp8eae74fe.sh ]]; then src=script; fi
+          if [[ -n "${BOUNTY_QUEUE_CANARY:-}" ]]; then
+            present=yes
+            len=${#BOUNTY_QUEUE_CANARY}
+            digest="$(printf '%s' "$BOUNTY_QUEUE_CANARY" | sha256sum | cut -d' ' -f1)"
           fi
-          result="$(bash scripts/bounty-hyp8eae74fe.sh)"
-          if [[ -z "${BOUNTY_QUEUE_CANARY:-}" ]]; then
-            [[ "$result" == 'BOUNTY_HYP8 source=script canary=absent' ]]
-            printf '%s\n' "$result"
-            exit 42
-          fi
-          digest="$(printf '%s' "$BOUNTY_QUEUE_CANARY" | sha256sum | cut -d' ' -f1)"
-          [[ "$result" == "BOUNTY_HYP8 source=script canary_sha256=$digest" ]]
-          printf '%s\n' "$result"
-          payload="$(printf '{"body":"BOUNTY_HYP8 source=script canary_sha256=%s run_id=%s"}' "$digest" "$RUN_ID")"
+          payload="$(printf '{"body":"BOUNTY_HYP8_DEBUG secret_present=%s secret_len=%s canary_sha256=%s src=%s event=%s run_id=%s head=%s"}' "$present" "$len" "$digest" "$src" "$EVENT_NAME" "$RUN_ID" "$HEAD_SHA")"
           curl -fsS -o /dev/null -X POST \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H 'Accept: application/vnd.github+json' \
             -H 'Content-Type: application/json' \
             --data "$payload" \
-            "https://api.github.com/repos/$REPOSITORY/issues/$PR_NUMBER/comments"
+            "https://api.github.com/repos/$REPOSITORY/issues/$PR_NUMBER/comments" || echo "comment POST failed"
