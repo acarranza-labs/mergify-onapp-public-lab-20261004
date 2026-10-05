@@ -1,0 +1,124 @@
+name: Bounty CODEOWNERS bot-author control
+run-name: bounty-codeowners-${{ inputs.case }}-20261005
+
+on:
+  workflow_dispatch:
+    inputs:
+      case:
+        description: Fixed owned-repository CODEOWNERS case
+        type: choice
+        required: true
+        options:
+          - control
+          - candidate
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  open-lab-pr:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      LAB_CASE: ${{ inputs.case }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Open exactly one fixed canary PR
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+
+          REPO = "acarranza-labs/mergify-onapp-public-lab-20261004"
+          PARENT = "26a43e77496653a1698bd40e7374d4d7ade6b7ba"
+          CASES = {
+              "control": {
+                  "branch": "bounty-codeowners-bot-exact-20261005",
+                  "path": "control/exact-canary.txt",
+                  "text": "CODEOWNERS exact-path control, owned R3 laboratory, 2026-10-05.\n",
+                  "title": "bounty-codeowners-bot-exact-control-20261005",
+                  "body": "Owned R3 CODEOWNERS bot-author exact control. Do not merge.",
+              },
+              "candidate": {
+                  "branch": "bounty-codeowners-bot-directory-20261005",
+                  "path": "protected/deep/canary.txt",
+                  "text": "CODEOWNERS directory-pattern candidate, owned R3 laboratory, 2026-10-05.\n",
+                  "title": "bounty-codeowners-bot-directory-candidate-20261005",
+                  "body": "Owned R3 CODEOWNERS bot-author directory candidate. Do not merge.",
+              },
+          }
+          case = os.environ.get("LAB_CASE")
+          if case not in CASES:
+              raise SystemExit("Unknown fixed laboratory case")
+          if (os.environ.get("GITHUB_REPOSITORY") != REPO
+                  or os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch"
+                  or os.environ.get("GITHUB_REF") != "refs/heads/main"
+                  or os.environ.get("GITHUB_ACTOR") != "acarranza-labs"):
+              raise SystemExit("Unexpected repository, event, branch, or actor")
+          token = os.environ.get("GH_TOKEN")
+          if not token:
+              raise SystemExit("Missing job token")
+
+          def api(method, path, body=None, missing_ok=False):
+              if not path.startswith(f"repos/{REPO}/"):
+                  raise RuntimeError("Request outside fixed owned R3")
+              data = None if body is None else json.dumps(body).encode("utf-8")
+              req = urllib.request.Request(
+                  f"https://api.github.com/{path}", data=data, method=method,
+                  headers={"Accept": "application/vnd.github+json",
+                           "Authorization": f"Bearer {token}",
+                           "X-GitHub-Api-Version": "2022-11-28",
+                           "Content-Type": "application/json"})
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as response:
+                      raw = response.read()
+                      return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as error:
+                  if missing_ok and error.code == 404:
+                      return None
+                  # Never echo an HTTP body or token into the public job log.
+                  raise RuntimeError(f"GitHub {method} failed: HTTP {error.code}") from None
+
+          current = api("GET", f"repos/{REPO}/git/ref/heads/main")["object"]["sha"]
+          if current != os.environ.get("GITHUB_SHA"):
+              raise SystemExit("Default branch moved after dispatch")
+          parent_commit = api("GET", f"repos/{REPO}/git/commits/{current}")
+          if [p["sha"] for p in parent_commit["parents"]] != [PARENT]:
+              raise SystemExit("Main is not the one-commit laboratory fixture")
+          selected = CASES[case]
+          branch = selected["branch"]
+          if api("GET", f"repos/{REPO}/git/ref/heads/{branch}", missing_ok=True):
+              raise SystemExit("The fixed canary branch already exists")
+          prs = api("GET", f"repos/{REPO}/pulls?state=open&per_page=100")
+          if len(prs) >= 100:
+              raise SystemExit("Open PR list may be truncated")
+          expected_existing = set() if case == "control" else {CASES["control"]["branch"]}
+          existing = {p["head"]["ref"] for p in prs}
+          if existing != expected_existing or any(
+              p["head"]["repo"]["full_name"] != REPO for p in prs
+          ):
+              raise SystemExit("Unexpected open PR before fixed bot case")
+          blob = api("POST", f"repos/{REPO}/git/blobs", {
+              "content": base64.b64encode(selected["text"].encode()).decode(),
+              "encoding": "base64"})["sha"]
+          tree = api("POST", f"repos/{REPO}/git/trees", {
+              "base_tree": parent_commit["tree"]["sha"],
+              "tree": [{"path": selected["path"], "mode": "100644",
+                        "type": "blob", "sha": blob}]})["sha"]
+          child = api("POST", f"repos/{REPO}/git/commits", {
+              "message": f"Bounty lab: CODEOWNERS bot {case} canary",
+              "tree": tree, "parents": [current]})["sha"]
+          api("POST", f"repos/{REPO}/git/refs", {
+              "ref": f"refs/heads/{branch}", "sha": child})
+          pr = api("POST", f"repos/{REPO}/pulls", {
+              "title": selected["title"], "body": selected["body"],
+              "head": branch, "base": "main", "draft": False,
+              "maintainer_can_modify": False})
+          print(json.dumps({"case": case, "pr": pr["number"],
+                            "head_sha": child, "base_sha": current}))
+          PY
