@@ -1,0 +1,64 @@
+name: bounty-direct-merge-ci
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+
+jobs:
+  detect-scopes:
+    if: ${{ github.repository == 'acarranza-labs/mergify-onapp-public-lab-20261004' && github.event.pull_request.base.repo.full_name == 'acarranza-labs/mergify-onapp-public-lab-20261004' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == 'acarranza-mergify-lab-20261005/mergify-onapp-public-lab-20261004' && github.event.pull_request.head.repo.id == 1405661338 && github.event.pull_request.head.ref == 'bounty-direct-spoof-20261005' }}
+    runs-on: ubuntu-24.04
+    outputs:
+      api: ${{ fromJSON(steps.scopes.outputs.scopes).api }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Record the immutable pull request head
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: printf 'PR_HEAD ref=%s sha=%s\n' "$PR_HEAD_REF" "$PR_HEAD_SHA"
+      - name: Compute scopes with published Mergify Action
+        id: scopes
+        uses: Mergifyio/gha-mergify-ci@v26
+        with:
+          action: scopes
+      - name: Record deployed CLI and decision
+        env:
+          SCOPES_JSON: ${{ steps.scopes.outputs.scopes }}
+          API_SCOPE: ${{ fromJSON(steps.scopes.outputs.scopes).api }}
+          DETECTED_BASE: ${{ steps.scopes.outputs.base }}
+          DETECTED_HEAD: ${{ steps.scopes.outputs.head }}
+        run: |
+          mergify --version
+          printf 'SCOPE_RESULT api=%s base=%s head=%s scopes=%s\n' "$API_SCOPE" "$DETECTED_BASE" "$DETECTED_HEAD" "$SCOPES_JSON"
+
+  api-tests:
+    needs: detect-scopes
+    if: ${{ !cancelled() && github.repository == 'acarranza-labs/mergify-onapp-public-lab-20261004' && github.event.pull_request.base.repo.full_name == 'acarranza-labs/mergify-onapp-public-lab-20261004' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == 'acarranza-mergify-lab-20261005/mergify-onapp-public-lab-20261004' && github.event.pull_request.head.repo.id == 1405661338 && github.event.pull_request.head.ref == 'bounty-direct-spoof-20261005' && needs.detect-scopes.result == 'success' && needs.detect-scopes.outputs.api == 'true' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject the one inert integration canary
+        run: |
+          set -euo pipefail
+          if [[ -f api/bounty-direct-merge-canary.txt ]]; then
+            echo 'API_TEST_REJECTED_DIRECT_MERGE_CANARY'
+            exit 1
+          fi
+          echo 'API_TEST_OK'
+
+  ci-gate:
+    needs: [detect-scopes, api-tests]
+    if: ${{ !cancelled() && github.repository == 'acarranza-labs/mergify-onapp-public-lab-20261004' && github.event.pull_request.base.repo.full_name == 'acarranza-labs/mergify-onapp-public-lab-20261004' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == 'acarranza-mergify-lab-20261005/mergify-onapp-public-lab-20261004' && github.event.pull_request.head.repo.id == 1405661338 && github.event.pull_request.head.ref == 'bounty-direct-spoof-20261005' && needs.detect-scopes.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Aggregate the exact jobs with Mergify's documented gate
+        uses: Mergifyio/gha-mergify-ci@v26
+        with:
+          action: wait-jobs
+          jobs: ${{ toJSON(needs) }}
