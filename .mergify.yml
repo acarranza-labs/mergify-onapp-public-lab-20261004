@@ -1,1 +1,20 @@
-pull_request_rules: []
+merge_queue:
+  max_parallel_checks: 1
+
+queue_rules:
+  - name: bounty-hyp8eae74fe
+    batch_size: 2
+    batch_max_wait_time: 2 min
+    queue_conditions:
+      - base = main
+    merge_conditions:
+      - "#approved-reviews-by >= 1"
+      - check-success = bounty-hyp8eae74fe-never-issued
+
+pull_request_rules:
+  - name: queue only exact experiment title
+    conditions:
+      - base = main
+      - title = bounty-hyp8eae74fe-queue
+    actions:
+      queue: {}
