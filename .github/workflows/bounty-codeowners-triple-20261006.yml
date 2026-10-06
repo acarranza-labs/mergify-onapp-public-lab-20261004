@@ -1,0 +1,200 @@
+name: Bounty CODEOWNERS triple controls
+run-name: bounty-codeowners-triple-20261006-${{ inputs.cid }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      cid:
+        description: Exact opaque laboratory CID
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  open-three-lab-prs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Open exactly three inert bot-authored PRs
+        shell: bash
+        run: |
+          python - <<'PY'
+          import base64
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+
+          REPO = "acarranza-labs/mergify-onapp-public-lab-20261004"
+          REPO_ID = 1404856005
+          PARENT = "b2f8daa94b0ddef2294793c5557695001c7fe07b"
+          CID = "cid-fdc48e0289f5344d"
+          BOT = "github-actions[bot]"
+          CASES = (
+              ("a", "bounty-co-triple-a-20261006", "control/exact-canary.txt",
+               "Owned R3 CODEOWNERS exact-path control A.\n",
+               "bounty-co-triple-a-staged-20261006"),
+              ("b", "bounty-co-triple-b-20261006", "deeply/nested/logsx/canary.txt",
+               "Owned R3 CODEOWNERS free control B.\n",
+               "bounty-co-triple-b-staged-20261006"),
+              ("c", "bounty-co-triple-c-20261006", "deeply/nested/logs/canary.txt",
+               "Owned R3 CODEOWNERS double-star candidate C.\n",
+               "bounty-co-triple-c-staged-20261006"),
+          )
+          if (os.environ.get("GITHUB_REPOSITORY") != REPO or
+                  os.environ.get("GITHUB_EVENT_NAME") != "workflow_dispatch" or
+                  os.environ.get("GITHUB_REF") != "refs/heads/main" or
+                  os.environ.get("GITHUB_ACTOR") != "acarranza-labs" or
+                  os.environ.get("GITHUB_RUN_ATTEMPT") != "1"):
+              raise SystemExit("Unexpected repository, event, branch, actor or run attempt")
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as event_file:
+              event = json.load(event_file)
+          if (event.get("inputs") or {}).get("cid") != CID:
+              raise SystemExit("Dispatch input CID differs from reviewed fixture")
+          run_id = os.environ.get("GITHUB_RUN_ID", "")
+          token = os.environ.get("GH_TOKEN", "")
+          if not run_id.isdecimal() or not token:
+              raise SystemExit("Missing numeric run ID or job token")
+          root = f"repos/{REPO}"
+          allowed = {
+              ("GET", root),
+              ("GET", root + "/git/ref/heads/main"),
+              ("GET", root + "/pulls?state=open&per_page=100"),
+              ("POST", root + "/git/refs"),
+              ("POST", root + "/pulls"),
+          }
+          for _, branch, path, _, _ in CASES:
+              allowed.add(("GET", root + "/git/ref/heads/" + branch))
+              allowed.add(("GET", root + "/contents/" + path + "?ref=" + branch))
+              allowed.add(("PUT", root + "/contents/" + path))
+
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self, req, fp, code, msg, headers, newurl):
+                  return None
+
+          opener = urllib.request.build_opener(NoRedirect)
+
+          def api(method, path, body=None, missing_ok=False):
+              if (method, path) not in allowed:
+                  raise RuntimeError("API route outside fixed owned R3 fixture")
+              data = None if body is None else json.dumps(body).encode()
+              req = urllib.request.Request(
+                  "https://api.github.com/" + path, data=data, method=method,
+                  headers={"Accept": "application/vnd.github+json",
+                           "Authorization": "Bearer " + token,
+                           "X-GitHub-Api-Version": "2022-11-28",
+                           "Content-Type": "application/json"})
+              try:
+                  with opener.open(req, timeout=20) as response:
+                      raw = response.read(1000001)
+                      if len(raw) > 1000000:
+                          raise RuntimeError("GitHub response exceeded fixture limit")
+                      return json.loads(raw) if raw else None
+              except urllib.error.HTTPError as error:
+                  if missing_ok and error.code == 404:
+                      return None
+                  raise RuntimeError("GitHub fixture request failed: HTTP " + str(error.code)) from None
+
+          repo = api("GET", root)
+          if (repo.get("id") != REPO_ID or repo.get("full_name") != REPO or
+                  repo.get("private") is not False or repo.get("fork") is not False):
+              raise SystemExit("Owned R3 repository identity moved")
+          main = api("GET", root + "/git/ref/heads/main")["object"]["sha"]
+          if main != os.environ.get("GITHUB_SHA"):
+              raise SystemExit("Main moved after workflow dispatch")
+          commit_path = root + "/git/commits/" + main
+          allowed.add(("GET", commit_path))
+          commit = api("GET", commit_path)
+          if [p["sha"] for p in commit["parents"]] != [PARENT]:
+              raise SystemExit("Main is not the one-commit installed workflow")
+          created = {}
+
+          def assert_main():
+              if api("GET", root + "/git/ref/heads/main")["object"]["sha"] != main:
+                  raise SystemExit("Main moved during triple PR creation")
+
+          def prefix_visible():
+              assert_main()
+              open_prs = api("GET", root + "/pulls?state=open&per_page=100")
+              if not isinstance(open_prs, list) or len(open_prs) >= 100 or len(open_prs) > len(created):
+                  raise SystemExit("Unexpected open PR or truncated inventory")
+              if len(open_prs) < len(created):
+                  return False
+              by_branch = {p["head"]["ref"]: p for p in open_prs}
+              if len(by_branch) != len(open_prs):
+                  raise SystemExit("Duplicate PR head in fixture inventory")
+              for case, branch, _, _, title in CASES:
+                  ref = api("GET", root + "/git/ref/heads/" + branch, missing_ok=True)
+                  expected = created.get(case)
+                  if expected is None:
+                      if ref is not None or branch in by_branch:
+                          raise SystemExit("Unattributed future case ref or PR exists")
+                      continue
+                  pr = by_branch.get(branch)
+                  if ref is None or pr is None:
+                      return False
+                  if (ref["object"]["sha"] != expected["head"] or
+                          pr["number"] != expected["pr"] or
+                          pr["head"]["sha"] != expected["head"] or
+                          pr["head"]["repo"]["id"] != REPO_ID or
+                          pr["head"]["repo"]["full_name"] != REPO or
+                          pr["base"]["ref"] != "main" or pr["title"] != title or
+                          pr["base"]["repo"]["id"] != REPO_ID or
+                          pr["user"]["login"] != BOT or pr.get("merged_at") is not None or
+                          pr.get("body") != expected["body"]):
+                      raise SystemExit("Prior staged case changed during one job")
+              return True
+
+          def verify_prefix():
+              for attempt in range(3):
+                  if prefix_visible():
+                      return
+                  if attempt < 2:
+                      time.sleep(2)
+              raise SystemExit("Prior staged PR/ref not visible after bounded GET retry")
+
+          verify_prefix()
+          for case, branch, path, text, title in CASES:
+              verify_prefix()
+              assert_main()
+              ref = api("POST", root + "/git/refs", {"ref": "refs/heads/" + branch,
+                                                       "sha": main})
+              if ref.get("ref") != "refs/heads/" + branch or ref["object"]["sha"] != main:
+                  raise SystemExit("Created branch did not start at installed main")
+              assert_main()
+              content = api("PUT", root + "/contents/" + path, {
+                  "message": "Bounty lab: CODEOWNERS triple " + case + " canary",
+                  "content": base64.b64encode(text.encode()).decode(), "branch": branch})
+              head = content["commit"]["sha"]
+              if [p["sha"] for p in content["commit"]["parents"]] != [main]:
+                  raise SystemExit("Canary commit parent is not installed main")
+              stored = api("GET", root + "/contents/" + path + "?ref=" + branch)
+              if (stored.get("encoding") != "base64" or
+                      base64.b64decode(stored["content"]) != text.encode()):
+                  raise SystemExit("Canary bytes not reflected on exact branch")
+              body = ("Owned R3 CODEOWNERS triple " + case + " canary; CID " + CID +
+                      "; run " + run_id + "; head " + head + ". Do not merge.")
+              assert_main()
+              pr = api("POST", root + "/pulls", {
+                  "title": title, "body": body, "head": branch, "base": "main",
+                  "draft": False, "maintainer_can_modify": False})
+              if (pr.get("title") != title or pr.get("body") != body or
+                      pr["head"]["ref"] != branch or pr["head"]["sha"] != head or
+                      pr["head"]["repo"]["id"] != REPO_ID or
+                      pr["head"]["repo"]["full_name"] != REPO or
+                      pr["base"]["ref"] != "main" or
+                      pr["base"]["repo"]["id"] != REPO_ID or
+                      pr["user"]["login"] != BOT):
+                  raise SystemExit("Bot PR did not match inert staged case")
+              created[case] = {"pr": pr["number"], "head": head, "body": body}
+              assert_main()
+              print(json.dumps({"case": case, "pr": pr["number"], "head_sha": head,
+                                "run_id": run_id}))
+          verify_prefix()
+          PY
